@@ -1,6 +1,6 @@
 # Portfolio
 
-Simple implementation of various Navier Stokes solver
+Simple implementation of various scientific code
 
 - LBM SRT: Lattice Boltzman Method for Single relaxtion Time
 - LBM MRT: Lattice Boltzman Method for Multiple relaxtion Time
@@ -24,6 +24,8 @@ Simple implementation of various Navier Stokes solver
 ![Quadcopter](https://your-copied-image-address)
 
 - Simulated Annealing, Particle Swarm Optimization and Genetic Algorithm
+
+![Optimization](https://your-copied-image-address)
 
 
 
