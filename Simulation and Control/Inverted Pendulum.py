@@ -5,6 +5,9 @@ Created on Mon Apr  5 17:40:25 2021
 @author: Alexandre Brazy
 """
 """
+
+The code could be better writen
+
 The inverted pendulum is a classic problem as it is:
     - unstable
     - non linear
@@ -250,82 +253,6 @@ def LQR():
     K = 1/R * B.transpose() @ P_lqr #compute K
     return K
 
-def LQR_motor():
-    # 1 linearize around equilibrium
-    """
-    we startt with dx = f(x)
-    So the basic idea is to do a taylor development around the equilibrium point
-    dx = f(xeq,u) + Df/dx at eq* (x-xeq) + ignore hogh order
-    f(xeq,u) = 0 by def (equilibirum point)
-    and DF/dx is the jacobian
-    we end up with 
-    dx = jacobian * delta x => dx = A*x
-    also we use small angle approximation
-    
-    here x = [x, dx, th, dth]
-    and dx = A@x + B@F
-    
-    We add the eq of the motor to the 
-    
-    ------R-----L-->--
-    ^                |
-    |                |
-    V                Emf
-    |                |
-    |                |
-    -----------<------
-    
-    V = Ri + Ldi/dt +E
-    
-    current constant so di/dt = 0
-    
-    and E the back emf = Ke * dth
-    
-    and the torque generated T = Kt * i = F *r
-    r radius of the dc motor
-    
-    Ke=Kt
-     reorganizing everything gives:
-         
-         F = V k / R r - dth k**2/ R r
-    we have to incorporate that in the linear model as we no longer use F to control the system but V. therefor 
-    the lqr gain will be different
-    """   
-    A = np.array([[0, 1, 0, 0],
-                  [0, 0, g*mp/mc, 0],
-                  [0, 0, 0, 1],       
-                  [0, 0, g* (mp+mc)/(l*mc), 0]
-                    ])
-    
-    B = np.array([[0],
-                  [1/mc],
-                  [0],
-                  [1/(l*mc)]])
-    
-    # C = np.array([[1,0,0,0],
-    #               [0,0,1,0]])
-    # D = np.zeros([2,1]) # pk ?
-    #     Q same as A
-    # R nb input x nb input
-    Q = np.array([[10, 0, 0, 0],
-                  [0, 50, 0, 0],
-                  [0, 0, 500, 0],       
-                  [0, 0, 0, 250]
-                    ])
-    
-    R = .1
-    
-    # 2 P Q R S
-    
-    # 3 ricatti eq
-    
-    P_lqr = sp.linalg.solve_continuous_are(A,B,Q,R) # solve algebraic ricatti equation 
-
-
-    K = 1/R * B.transpose() @ P_lqr #compute K
-    return K
-
-
 def Kalman(x, dx, th, dth, F):
     global P,jnkx,jnkkx,jnknx
     # state = np.array([x, dx, th, dth]) 
@@ -353,10 +280,7 @@ def Kalman(x, dx, th, dth, F):
     "R uncertainty in the measurement, P uncertainty in the state Q represent noise "
     
     # project the error covariance ahead ie estimate how much noise will be in measurement
-    # Q = np.array([[5,0,0,0],
-    #               [0,5,0,0],
-    #               [0,0,5,0],
-    #               [0,0,0,5]])
+
     Q = np.eye(4)*5
     P = A @ sp.linalg.inv(P) @ A.transpose() + Q
     # P error value
@@ -364,19 +288,12 @@ def Kalman(x, dx, th, dth, F):
     # init value of Q std of sensor noise given by manufacturer
     # too big or too small its willl diverge
     
-    # # C = np.array([[1,0,0,0],
-    # #               [0,0,1,0]])
-    
     # compute kalman gain
     H = np.array([[1,0,0,0],
                   [0,1,0,0],
                   [0,0,1,0],
                   [0,0,0,1]])
-    
-    # R = np.array([[1,0,0,0],
-    #               [0,1,0,0],
-    #               [0,0,1,0],
-    #               [0,0,0,1]])
+   
     R = np.eye(4)*.1
     K = P @ H.transpose() @ sp.linalg.inv(H @ P @ H.transpose() + R)
     # k kalman gain how much we trust this sensor
@@ -397,28 +314,7 @@ def Kalman(x, dx, th, dth, F):
     
 
     return (y[0].item(), y[1].item(), y[2].item(), y[3].item() ) # quite ugly, y[n] get a singleton array, .item() extract the value
-    
-def MPC(ss):
-    
-    Nc = 15 # control horizon
-    Np = 25 #prediction horizon
-    
-    u = np.ones(Nc) #initial guess for control
-    up = np.concatenate([u, np.repeat(u[-1], Np - Nc)]) # extend control for prediction horizon, we optimize for control horizon but need more value for prediction
-    
-    t = np.arange(0,Np*dt, dt)    
-
-    Q = np.array([[1000, 0, 0, 0],
-                  [0, 500, 0, 0],
-                  [0, 0, 5000, 0],       
-                  [0, 0, 0, 2500]
-                    ])
-    
-    R = .01
-    
-    # jnk = np.sum(xx@Q@xx.transpose())
-# error xQx + uRu
-    
+        
 def prediction(ss, u, t, x0): #u = control , x0 initila state
     up = np.concatenate([u, np.repeat(u[-1], Np - Nc)]) # extend control for prediction horizon, we optimize for control horizon but need more value for prediction
     
@@ -446,11 +342,7 @@ def error(u):
     R = .0001
     return np.sum(np.einsum('ij,jk,ji->i',xx,Q,xx.transpose())) + np.sum(up * R * up) # einsum to have the good matrix multiplication
 
-    
-# def optimize(u):
-#     result = sp.optimize.minimize(error, u)#, method = 'SLSQP')
-#     result.x
-#     return result.x
+   
     
 jnkx=[]
 jnkkx=[]
@@ -460,7 +352,7 @@ jnk=[]
 jnkth=[]
 
 def animate(time):
-    global x, th, dx, dth, th_set, error_th, dt, error_cumul # to be change in class (and now i know why class are omnipresent)
+    global x, th, dx, dth, th_set, error_th, dt, error_cumul # to be change in class 
     global x_set, error_x, error_x_cumul, gbestcoef,F, jnkx,jnkkx,kx, kth    
     global ss, t, x0,u, Np, Nc,jnk,jnkth,F
     
@@ -491,10 +383,7 @@ def animate(time):
     "Control using the kalman estimate, physics using real position"
     # K = LQR()
     kx, kdx, kth, kdth = Kalman(x, dx, th, dth, F)
-# plt.plot(jnkx,label='x')
-# plt.plot(jnkkx,label='kx')
-# plt.plot(jnknx,label='nx')
-# # plt.legend()
+
 #     F = K@ np.array([x_set - kx, -kdx, th_set - kth, -kdth]) # -K@(x-xset)
 #     # F = K@ np.array([x_set - x, -dx, th_set - th, -dth]) # -K@(x-xset)
 #     # print([x, dx, th, dth],'\n',[kx, kdx, kth, kdth] ,'\n \n')
@@ -502,6 +391,9 @@ def animate(time):
 #     F = np.clip(F,-75,75)
         
     x0=np.array([kx, kdx, kth, kdth])
+    
+    "MPC control every 10 steps of simulation to model the delay of an inline mpc"
+    
     if time%10==0:
         bound = sp.optimize.Bounds(-75,75) 
         result = sp.optimize.minimize(error, u,  bounds=bound)
@@ -616,45 +508,6 @@ ss = sp.signal.StateSpace(A,B,C,D)
 
 x0=np.array([x,dx,th,dth]) #(x,dx,th,dth)
 
- 
-
-# for _ in range(niter):
-    
-#     th = ( th + np.pi) % (2 * np.pi ) - np.pi
-
-#     derror = error_th 
-#     derror_x = error_x 
-#     error_th = (th_set - th)
-#     error_x = x_set - x
-
-#     error_cumul += (th_set - th)
-    
-#     error_x_cumul = (x_set - x)
-#     # F = PID(240, 1, 30 , error_th, derror, dt, error_cumul)
-    
-#     # F += PID(-2.5, -1,- 2.5 , error_x, derror_x, dt, error_x_cumul)
-    
-#     F = -K@ np.array([x, dx, th, dth])
-    
-#     F = np.clip(F,-50,50)
-    
-#     plt.plot(x)
-#     plt.plot(x +x*np.random.randn()*.1) # add 10 % noise
-
-    
-#     x, th, dx, dth = physics(x, th, dx, dth, F[0])
-#     # xp = x - l * np.sin(th)
-#     # yp = l * np.cos(th)
-#     # x, th, dx, dth = physics(x, th, dx, dth, F)
-
-#     tempx.append(x)
-#     tempth.append(th)
-    
-# fig = plt.figure()
-# line1, = plt.plot(tempx, label = 'x')
-# line2, = plt.plot(tempth, label = 'th')
-# ax.legend()
-
 
 Nc = 8 # control horizon
 Np = 60 #prediction horizon
@@ -670,50 +523,3 @@ ani = animation.FuncAnimation(fig, animate, niter, repeat=False)
 
 writer = animation.writers['ffmpeg'](fps=10)
 ani.save('inverted_pendulum.mp4',writer=writer)
-
-# line1.set_data(axe1[:,0], axe1[:,1], axe1[:,2])
-# line1.set_data(axe1[:,0], axe1[:,1], axe1[:,2])
-
-# to be done :
-    
-#     pso pour coef pid
-    
-#     LQR
-
-
-
-# ax.set_xlim([np.min(temp[:,0]), np.max(temp[:,0])])
-# ax.set_ylim([np.min(temp[:,1]), np.max(temp[:,1])])
-
-# ax.set_box_aspect((1, 1, 1))
-
-# pid
-
-# lqr
-
-# kalman
-
-# lqg
-
-# model predictive control
-
-"visualization using tkinter and canvas"
-
-# # create root window
-# root = tk.Tk()
- 
-# # root window title and dimension
-# root.title("inverted Pendulum")
-# # Set geometry (widthxheight)
-# root.geometry('500x250')
-# canvas = tk.Canvas(root, width = 500, height = 250, bg= "black")
-# canvas.pack()
-# canvas.create_rectangle(200, 130, 260, 170, fill="red") # top left, bottom rigth
-# canvas.create_oval(210, 170, 220, 180, fill="red") # top left bottom rigth of the bounding box of the circle
-# canvas.create_oval(240, 170, 250, 180, fill="red") # top left bottom rigth of the bounding box of the circle
-# canvas.create_line(230, 150, 230, 80, fill="white") # debut, fin
-# canvas.create_oval(220, 60, 240, 80, fill="blue") # top left bottom rigth of the bounding box of the circle
-
-# # all widgets will be here
-# # Execute Tkinter
-# root.mainloop()
