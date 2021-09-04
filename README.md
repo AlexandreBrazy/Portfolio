@@ -25,7 +25,7 @@ Simple implementation of various scientific code
 
 ![Quadcopter](https://your-copied-image-address)
 
-- Simulated Annealing, Genetic Algorithm and Particle Swarm Optimization on Rastrigin function
+- Simulated Annealing (SA), Genetic Algorithm (GA) and Particle Swarm Optimization (PSO) on Rastrigin function
 
 ![SA](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/SA.gif)
 ![GA](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/GA.gif)
