@@ -6,8 +6,6 @@ Created on Mon Apr  5 17:40:25 2021
 """
 """
 
-The code could be better writen
-
 The inverted pendulum is a classic problem as it is:
     - unstable
     - non linear
@@ -46,480 +44,449 @@ ddx = ( F - dth**2 * l * mp * np.sin(th) + g * mp * np.cos(th) * np.sin(th) ) / 
 ddtheta = ( g * (mp + mc) * np.sin(th) + np.cos(th) * ( F - dth**2 * l * mp * np.sin(th)) ) / ( l * (mp + mc - mp * np.cos(th)) )
 
 """
+
 import numpy as np
+import scipy as sp 
+from scipy import linalg # to solve ricatti eq for LQR
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.patches as mplp
-import tkinter as tk
-import scipy as sp
-from scipy import linalg
 from scipy import signal
 from scipy import optimize
 
-"physic model"
-
-def physics(x, th, dx, dth,F):
-    global g, l, mp, mc, dt
-    
-    ddx = ( F - .1*dx - dth**2 * l * mp * np.sin(th) + g * mp * np.cos(th) * np.sin(th) ) / ( mc + mp - mp * np.cos(th)**2 ) 
-    
-    ddth = ( g * (mp + mc) * np.sin(th) + np.cos(th) * ( F - .1*dx - dth**2 * l * mp * np.sin(th)) ) / ( l * (mp + mc - mp * np.cos(th)**2) ) - .2*dth
-    
-    dx += ddx * dt
-    
-    dth += ddth * dt
-    
-    x += dx * dt
-    
-    th += dth * dt
-    return x, th, dx, dth
 
 
-def PSO():#x, dx, th, dth, error_x, error_th, error_x_cumul, error_cumul, part, pbest, gbest, pbestcoef, v, niter, k): # particle swarm optimization to tune the PIDs
-    niterpso = 100
-    k=1
-            
-    nbpart = 2500
-    part = np.random.uniform(-250,250, (nbpart,6)) # 100 particles with 6 coefficients, 3 for the PID on the angle, 3 for the PID on position
+class pendulum:
+    
+    def __init__(self):
         
-    pbest = np.inf * np.ones(nbpart)
+        self.x = 0 # oosition
+        self.dx = 0 # velocity
+        self.th = .2 # angle
+        self.dth = 0 # angle velocity
         
-    gbest = np.inf # global best as + infinity
+        self.F = 0 # control force
+        
+        self.g = 9.81
+        self.mp =  1 # mass of pendulum
+        self.mc = 5 # mass of cart
+        self.l = 4 # length of the pendulum arm
+        
+    def physics(self, t, X):
+        
+        "theta = direct trigo direction"
+        
+        x, dx, th, dth = X.ravel() # .ravel() to ease unpack
+        
+        dX = np.array([
+                [dx],
     
-    pbestcoef = part
-    
-    tempgbest = []
-    v = np.random.uniform(-1,1, size = (nbpart,6))
-    while k<niterpso:
-        # init/reinit error and init value
+                [( self.F - dth**2 * self.l * self.mp * np.sin(th) + self.g * self.mp * np.cos(th) * np.sin(th) ) / ( self.mc + self.mp - self.mp * np.cos(th)**2 ) - .1*dx ],
+  
+                [dth],
                 
-        th = np.ones(nbpart) * np.deg2rad(15) #+ np.random.randn() # 0 = vertical pendulum
-        dth = np.zeros(nbpart)
-        
-        x = np.ones(nbpart)
-        dx = np.zeros(nbpart)
-        # init particle, persnnal best and global best.
-        
-        
+                [( self.g * (self.mp + self.mc) * np.sin(th) + np.cos(th) * ( self.F - dth**2 * self.l * self.mp * np.sin(th)) ) / ( self.l * (self.mp + self.mc - self.mp * np.cos(th)**2) ) - .2*dth]
+               
+                 ])
             
-        """ """
+        return dX
+    
+    def rk4(self, t, X, h):
+        
+        """
+        for a coupled 2nd order ode for rk4
+        
+        1- decompose the system in a coupled 1st order ode
+            dy1 = f1
+            dy2 = f2
+            dy3 = f3
+            ...
+        
+        2- set X = (y1, y2, y3,...) and F = (f1, f2, f3,...)
+        
+        3- use the classic formula of rk4
+        
+        """
+        
+        k1 = self.physics(t, X)
+        
+        k2 = self.physics(t+h/2, X+h*k1/2)
+        
+        k3 = self.physics(t+h/2, X+h*k2/2)
+        
+        k4 = self.physics(t+h, X+h*k3)
+        
+        X = X + h*(k1 + 2*k2 + 2*k3 + k4)/6    
+        
+        return X 
+    
+class control:
+    
+    def __init__(self, command , controller ):
+        
+        "command = x, th"
+        
+        self.command = command
 
-        # F = 000
-        dt = 0.01
         
-        th_set = 0
-        x_set = 0
-        
-        error_th = th_set - th
-        error_cumul = (th_set - th)
-        
-        error_x = x_set - x
-        error_x_cumul = (x_set - x)
+        if controller == 'PID':                
 
-        # init particle, pe
-        # evaluate for each particle its fitness after 5s
-        # 1 - compute the input due to the PID
+            self.err = np.zeros_like(command)
+            self.derr = np.zeros_like(command)
+            self.int_err = np.zeros_like(command)
+        
+        elif controller=='LQR':                        
+
+            self.err = np.zeros_like(command)
+            
+        elif controller=='MPC':
+                       
+            self.err = 0    
+            
+        else: print('invalid controller')
+            
+    def update_err_pid(self, state, dstate, dt):
+        
+        "state is the process value (eg position) and dstate its derivative (eg velocity)"
+        
+        self.err = self.command - state 
+        # self.derr = (self.err - old_err) / dt
+        self.derr = - dstate # we use the derivative on measurement as there is less kick when the command change
+        self.int_err = self.int_err + self.err*dt
 
         
-        fitness = np.zeros(nbpart)
+    def PID_init(self, coef):
+        """
+        For PID we need two instance or a 2d pid. one for angle one for position.
+        if the angle is to the left the cart must go left and viceversa so coef are >0
+        if the cart is one the left its must go rigth and vice versa so cef are <0
+        """
+        self.Kp, self.Ki, self.Kd = coef
         
+    def PID(self):
         
-            
-        
-        for _ in range(500):            
-            th = ( th + np.pi) % (2 * np.pi ) - np.pi
-
-            derror = error_th 
-            derror_x = error_x             
-            
-            error_th = th_set - th
-            
-            error_x = x_set - x            
-            F = PID(part[:,0], part[:,1], part[:,2], error_th, derror, dt, error_cumul) # angle
-            
-            F += PID(part[:,3], part[:,4], part[:,5], error_x, derror_x, dt, error_x_cumul) # position
-                 
-            F=np.clip(F, -50,50)
-            
-            x, th, dx, dth = physics(x, th, dx, dth, F)
-                        
-            # si angle > pi => -2pi
-            # si angle <-pi =? +2 pi
-            # double pi = Math.PI;
-            # while (angle > pi)
-            #     angle -= 2 * pi;
-            # while (angle < -pi)
-            #     angle += 2 * pi;
-            
-            
-            error_cumul += (th_set - th)
-            
-            error_x_cumul = (x_set - x)
-            
-            # 2 - Compute the position and the angle
-            
-            
-                
-            w1, w2, w3 = 30, 10, 10 # weigth for the fitness, higher mean it should be minize first
-        
-            fitness += w1 * error_th**2 + w2 * error_x**2 + w3 * F**2
-        
-        # update the particle with PSO
-        
-        for ii in range(nbpart):
-            if fitness[ii] < pbest[ii]: 
-                pbest[ii] = fitness[ii]
-                pbestcoef[ii] = part[ii]
-            
-        jnk = np.argmin(pbest) # global best is the min of all personnal best
-        if pbest[jnk] < gbest :
-            gbest = pbest[jnk]
-            gbestcoef = pbestcoef[jnk]
-        
-        tempgbest.append(gbest)
-        
-        Wmax, Wmin, kmax= 1, 0, niterpso
-        
-        k+=1
-        
-        W = Wmax - (Wmax - Wmin) / kmax * k
-        
-        ww, ww2 = 2, 2
-        
-        v = (W * v 
-             + ww * np.random.uniform(size=(nbpart,6)) * (pbestcoef - part)  
-             + ww2 * np.random.uniform(size=(nbpart,6)) * (gbestcoef - part) )
-        
-        part += v
-        part = np.clip(part,-250,250)
-        # print(part[0:5,:])
-    print(gbest, gbestcoef)
-    plt.figure()
-    plt.plot(tempgbest)
-    return(gbestcoef) #,gbest )
-
-
-def PID(Kp, Ki, Kd, error, old_error,dt, error_sum): #, pos, old_pos):
-    
-    Kpid = Kp*error + Kd*(error-old_error)/dt + Ki*error_sum*dt # derivative on error => kick when command change
-    # Kpid = Kp*error - Kd*(pos-old_pos)/dt + Ki*error_sum*dt # derivative on measurement => way less kick
-    return Kpid
-
-def LQR():
-    # 1 linearize around equilibrium
-    """
-    we startt with dx = f(x)
-    So the basic idea is to do a taylor development around the equilibrium point
-    dx = f(xeq,u) + Df/dx at eq* (x-xeq) + ignore hogh order
-    f(xeq,u) = 0 by def (equilibirum point)
-    and DF/dx is the jacobian
-    we end up with 
-    dx = jacobian * delta x => dx = A*x
-    also we use small angle approximation
-    
-    here x = [x, dx, th, dth]
-    and dx = A@x + B@F
-    """   
-    A = np.array([[0, 1, 0, 0],
-                  [0, 0, g*mp/mc, 0],
-                  [0, 0, 0, 1],       
-                  [0, 0, g* (mp+mc)/(l*mc), 0]
-                    ])
-    
-    B = np.array([[0],
-                  [1/mc],
-                  [0],
-                  [1/(l*mc)]])
-    
-    # C = np.array([[1,0,0,0],
-    #               [0,0,1,0]])
-    #     Q same as A
-    # R nb input x nb input
-    Q = np.array([[10, 0, 0, 0],
-                  [0, 50, 0, 0],
-                  [0, 0, 500, 0],       
-                  [0, 0, 0, 250]
-                    ])
-    
-    R = .1
-    
-    # 2 P Q R S
-    
-    # 3 ricatti eq
-    
-    P_lqr = sp.linalg.solve_continuous_are(A,B,Q,R) # solve algebraic ricatti equation 
-
-
-    K = 1/R * B.transpose() @ P_lqr #compute K
-    return K
-
-def Kalman(x, dx, th, dth, F):
-    global P,jnkx,jnkkx,jnknx
-    # state = np.array([x, dx, th, dth]) 
-    state = np.array([x, dx, th, dth]) + np.random.normal(0,1,4) # add some Addititve White Gaussian Noise (AWGN)
-    state=state.reshape([4,1])
-    
-    
-    jnkx.append(th)    
-    jnknx.append(state[2])
-    
-    A = np.array([[0, 1, 0, 0],
-                  [0, 0, g*mp/mc, 0],
-                  [0, 0, 0, 1],       
-                  [0, 0, g* (mp+mc)/(l*mc), 0]
-                    ])
-    
-    B = np.array([[0],
-                  [1/mc],
-                  [0],
-                  [1/(l*mc)]])
-    
-    # project the state ahead
-    y = A @ state + B * F
-    
-    "R uncertainty in the measurement, P uncertainty in the state Q represent noise "
-    
-    # project the error covariance ahead ie estimate how much noise will be in measurement
-
-    Q = np.eye(4)*5
-    P = A @ sp.linalg.inv(P) @ A.transpose() + Q
-    # P error value
-    # Q covarianceof noise describes distribution of noise
-    # init value of Q std of sensor noise given by manufacturer
-    # too big or too small its willl diverge
-    
-    # compute kalman gain
-    H = np.array([[1,0,0,0],
-                  [0,1,0,0],
-                  [0,0,1,0],
-                  [0,0,0,1]])
+        Kpid = self.Kp*self.err + self.Kd*self.derr + self.Ki*self.int_err # derivative on measurement => way less kick
    
-    R = np.eye(4)*.1
-    K = P @ H.transpose() @ sp.linalg.inv(H @ P @ H.transpose() + R)
-    # k kalman gain how much we trust this sensor
-    # Pk predicted error covarianceH the model of how the sensor reading 
-    # reflect the vehicle state
-    # R describes the noise un sensor measurement starting value like Q
-    
-    # update the estimate with measurmenet from sensor
-    z = np.array([x,dx,th,dth]).reshape([4,1])
-    y = y + (K@(z - H@y))
-    # Zk measurement of senser
-    
-    # update the error covariance
-    P = (np.eye(4) - K @ H) @ P
-    
-    # print(x-y[0])
-    jnkkx.append(y[2])
-    
-
-    return (y[0].item(), y[1].item(), y[2].item(), y[3].item() ) # quite ugly, y[n] get a singleton array, .item() extract the value
+        return Kpid
         
-def prediction(ss, u, t, x0): #u = control , x0 initila state
-    up = np.concatenate([u, np.repeat(u[-1], Np - Nc)]) # extend control for prediction horizon, we optimize for control horizon but need more value for prediction
+    def update_err_lqr(self, state):
+        
+        "state is the state of the system "
+        
+        self.err = self.command - state # numpy array better ?
+  
+
+    def LQR(self, A, B, Q, R):
+
+        # 1 linearize around equilibrium
+        """
+        we startt with dx = f(x)
+        So the basic idea is to do a taylor development around the equilibrium point
+        dx = f(xeq,u) + Df/dx at eq* (x-xeq) + ignore hogh order
+        f(xeq,u) = 0 by def (equilibirum point)
+        and DF/dx is the jacobian
+        we end up with 
+        dx = jacobian * delta x => dx = A*x
+        also we use small angle approximation
+        
+        here x = [x, dx, th, dth]
+        and dx = A@x + B@F => continuous ricatti eq (continuous_are)
+        if X+1 = A@x + B@u => discrete ricatti eq 
+        and its this eq to use in kalman
+        """   
+        
+        # 2 P Q R S
+        
+        # 3 ricatti eq
+        
+        P_lqr = sp.linalg.solve_continuous_are(A,B,Q,R) # solve algebraic ricatti equation 
     
-    t, yy, xx = sp.signal.lsim(ss, up, t, x0)    
+        "R[:,None] to add one dim so R is square instead of (1,)"
+        K = np.linalg.inv(R) @ B.transpose() @ P_lqr # compute K for continuous system
+        
+        # K for discrete case is compute differently not implemented
+        
+        
+        self.K = K
+  
+        
+    def MPC_init(self, A, B, C, D, Q, R, Nc, Np, u, h):
+
+        self.state_space = sp.signal.StateSpace(A, B, C, D, dt=h)
+        self.Q = Q
+        self.R = R
     
-    xx[:,2] = ( xx[:,2] + np.pi) % (2 * np.pi ) - np.pi
+        self.Nc = Nc # control horizon
+        self.Np = Np # prediction horizon
+        
+        self.u = u # initial guess for mpc control law
+        
 
-    return (yy, xx, up)
+    def MPC_prediction(self, u, x0, t):
+        'u = control , x0 current state'
+        'u is usually given as the previous compute control to speed up calculation'
+        'The time steps at which the input is defined. If t is given, it must be the same length as u, and the final value in t determines the number of steps returned in the output.'
+        
+        up = np.concatenate([u, np.repeat(u[-1], self.Np - self.Nc)]) 
+        up = up.reshape(up.shape[0],1)
+        
+        # extend control for prediction horizon, we optimize for control horizon but need more value for prediction horizon
+        
+        t, yy, xx = sp.signal.dlsim(self.state_space, up, t, x0.squeeze())     # squeeze for dimension, dont really no why
+        
+        xx[:,2] = ( xx[:,2] + np.pi) % (2 * np.pi ) - np.pi # for the angle value to stay between [-pi ; pi]
+    
+        return (yy, xx, up)
 
-def error(u):
-    global ss, t, x0, x_set, th_set
-    yy, xx, up = prediction(ss, u,t, x0)
+    def MPC_error(self, u, x0, t):
+        "u = input command for the control horizon, Q state penalty, R input penalty"
+        
+        yy, xx, up = self.MPC_prediction(u, t, x0)
+    
+        r=[self.command[0], 0, self.command[2], 0]
+        # np.sum((r - yy)**2)
+        xx = xx-r    
+        xx[:,2] = (  xx[:,2] + np.pi) % (2 * np.pi ) - np.pi
+    
+        return np.sum(np.einsum('ij,jk,ji->i',xx,self.Q,xx.transpose())) + np.sum(up @ self.R @ up.transpose()) # einsum to have the matrix multiplication apply on all row of xx
+    
+    def MPC_command(self, u, x0, t, bound = None):
+    
+        
+        if type(bound) != tuple: # if bound is not a tuple then no bound is use
+            result = sp.optimize.minimize(self.MPC_error, u,args=(x0, t) ) #,  bounds=bound)
+        
+        else:
+            bound = sp.optimize.Bounds(bound[0], bound[1]) 
+            result = sp.optimize.minimize(self.MPC_error, u,args=(x0, t), bounds=bound)
+        
+            
+        return result
+        
 
-    r=[x_set, 0, th_set, 0]
-    # np.sum((r - yy)**2)
-    xx = xx-r    
-    # xx[:,2] = (  xx[:,2] + np.pi) % (2 * np.pi ) - np.pi
 
-    Q = np.array([[10, 0, 0, 0],
-                  [0, 1, 0, 0],
-                  [0, 0, 50, 0],       
-                  [0, 0, 0, 1]
+class Kalman:
+    
+    def __init__(self, state, A, B, Q, H, R, P):
+
+        "to project the system"
+        self.A = A
+        self.B = B
+        self.H = H
+        
+        "R uncertainty in the measurement, P uncertainty in the state Q represent process noise ie how far the model is from reality "
+        
+        self.Q = Q
+        self.R = R
+        
+        self.P = P
+        
+        self.kx = state[0]
+        self.kdx = state[1] 
+        self.kth = state[2]
+        self.kdth = state[3]
+        
+        
+    def kalman_filter(self, kalman_state, measurement, F):
+        
+        kalman_state = kalman_state.reshape([4,1])
+           
+        # project the kalman_state ahead
+        y = self.A @ kalman_state + self.B * F # normally, B@F but in the present case F is just a value and not a matrix so it become B*F
+
+        # project the error covariance ahead ie estimate how much noise will be in measurement
+
+        
+        self.P = self.A @ self.P @ self.A.transpose() + self.Q
+        # P error value
+        # Q covarianceof noise describes distribution of noise
+        # init value of Q std of sensor noise given by manufacturer
+        # too big or too small its willl diverge
+        
+        
+        # compute kalman gain
+        
+        
+        
+        K = self.P @ self.H.transpose() @ sp.linalg.inv(self.H @ self.P @ self.H.transpose() + self.R)
+        # k kalman gain how much we trust this sensor
+        # Pk predicted error covarianceH the model of how the sensor reading 
+        # reflect the vehicle state
+        # R describes the noise un sensor measurement starting value like Q
+        
+        # update the estimate with measurmenet from sensor
+        z = measurement # add some Addititve White Gaussian Noise (AWGN) for position/vel std of .5 for angle/angle vel std of .05
+        z = z.reshape([4,1])
+        y = y + ( K@(z - self.H @ y) )
+        # Zk measurement of senser
+        
+        # update the error covariance
+        self.P = (np.eye(4) - K @ self.H) @ self.P
+        
+        
+    
+        return y
+    
+        
+pend = pendulum()
+
+t=0
+h=0.05
+
+X = np.array([
+              [pend.x],
+              [pend.dx],
+              [pend.th],
+              [pend.dth]
+              ])
+
+# ctrl = control(np.array([5,0]),'PID') # set the command (as input) and error, command need to be in row format
+# ctrl = control(np.array([5,0,0,0]),'LQR') # set the command (as input) and error, command need to be in row format
+ctrl = control(np.array([5,0,0,0]),'MPC') # set the command (as input) and error, command need to be in row format
+
+
+"PID coef: 1st column position, 2nd column angle"
+pid_coef = np.array([
+                    [-5, 200],
+                    [-1, 1], 
+                    [-10, 100]
                     ])
-    
-    R = .0001
-    return np.sum(np.einsum('ij,jk,ji->i',xx,Q,xx.transpose())) + np.sum(up * R * up) # einsum to have the good matrix multiplication
 
-   
-    
-jnkx=[]
-jnkkx=[]
-jnknx=[]
+"LQR init"
+A = np.array([[0, 1, 0, 0],
+              [0, 0, pend.g*pend.mp/pend.mc, 0],
+              [0, 0, 0, 1],       
+              [0, 0, pend.g* (pend.mp+pend.mc)/(pend.l*pend.mc), 0]
+                ])
 
-jnk=[]
-jnkth=[]
+B = np.array([[0],
+              [1/pend.mc],
+              [0],
+              [1/(pend.l*pend.mc)]])
 
-def animate(time):
-    global x, th, dx, dth, th_set, error_th, dt, error_cumul # to be change in class 
-    global x_set, error_x, error_x_cumul, gbestcoef,F, jnkx,jnkkx,kx, kth    
-    global ss, t, x0,u, Np, Nc,jnk,jnkth,F
-    
-    # th = ( th + np.pi) % (2 * np.pi ) - np.pi
-
-    derror = error_th 
-    derror_x = error_x 
-    error_th = (th_set - th)
-    error_x = x_set - x
-
-    error_cumul += (th_set - th)
-    
-    error_x_cumul = (x_set - x)
-    jnk.append(x)
-    jnkth.append(th)
-    
-    "PID"
-    # F = PID(240, 1, 30 , error_th, derror, dt, error_cumul)
-    
-    # F += PID(-2.5, -1,- 2.5 , error_x, derror_x, dt, error_x_cumul)
-
-    # F = PID(gbestcoef[0], gbestcoef[1], gbestcoef[2] , error_th, derror, dt, error_cumul)
-    
-    # F += PID(gbestcoef[3], gbestcoef[4], gbestcoef[5], error_x, derror_x, dt, error_x_cumul)
-    
-    "LQR/ LQG"
-    "LQG is basically a kalman filter + lqr controller"
-    "Control using the kalman estimate, physics using real position"
-    # K = LQR()
-    kx, kdx, kth, kdth = Kalman(x, dx, th, dth, F)
-
-#     F = K@ np.array([x_set - kx, -kdx, th_set - kth, -kdth]) # -K@(x-xset)
-#     # F = K@ np.array([x_set - x, -dx, th_set - th, -dth]) # -K@(x-xset)
-#     # print([x, dx, th, dth],'\n',[kx, kdx, kth, kdth] ,'\n \n')
-#     # print( 'F',F,"Fx", Fx)
-#     F = np.clip(F,-75,75)
+C = np.array([[1,0,0,0],
+              [0,0,1,0]])
         
-    x0=np.array([kx, kdx, kth, kdth])
-    
-    "MPC control every 10 steps of simulation to model the delay of an inline mpc"
-    
-    if time%10==0:
-        bound = sp.optimize.Bounds(-75,75) 
-        result = sp.optimize.minimize(error, u,  bounds=bound)
-        F = result.x[0]
-        u = result.x
-    
-    x, th, dx, dth = physics(x, th, dx, dth, F) # F[0] when using lqr
-    xp = x - l * np.sin(th)
-    yp = l * np.cos(th)
-    
-    ax.set_title('time = {t:.2f} s, NP = {Np}, Nc = {Nc}'.format(t=time*dt, Np=Np,Nc = Nc)) 
-    rect.set_xy((x-1, -.5))
-    circle.set_center((xp,yp))
-    line.set_data([x,xp], [0,yp])
-    
-    return x, th, dx, dth
+# Q size same as A
+# R size nb input x nb input
+Q = np.array([[10, 0, 0, 0],
+              [0, 1, 0, 0],
+              [0, 0, 50, 0],       
+              [0, 0, 0, 1]
+                ])
+
+R = np.array([.1], ndmin=2) # ndim =2 so we have an array
+
+"MPC init"
+
+Nc, Np = 8, 60
+
+u = np.ones(Nc) #initial guess for control
+
+t_mpc = np.arange(0,Np*h, h) 
+
+C = np.eye(4)
+
+D = np.zeros([4,1]) 
+
+# ctrl.PID_init(pid_coef)
+# ctrl.LQR(A, B, Q, R)
+ctrl.MPC_init((np.eye(4)+A*h), B*h, C, D, Q, R, Nc, Np, u, h)
+
+"for mpc a time step too small will result in instability unless increasing Nc and Np"
+
+"Kalman filter initialization"
+
+"""
+R describes the noise un sensor measurement starting value like Q
+Q describes the process noise ie how far your model is from reality
+H transform the meausrement into the state space ie electrical current to position for example. here its already in the correct form so its a identity matrix
+the smallest the more we trust
+"""
+Q = np.eye(4)*1e-5
+H = np.eye(4)
+R = (np.diag([1,1,0.5,0.5])*.4)**2 # np.eye(4)
+
+P = np.eye(4)*2
+
+X = X + np.random.normal(0,[[0.5],[.5],[.05],[.05]],(4,1))
+
+kalman = Kalman(X.ravel(), (np.eye(4)+A*h), B*h, Q, H, R, P) 
+
+# A@x+b@u = dx so to get the next step we compute X+1 = X + dX*dt= X + (Ax + Bu)*dt = (1 + A*dt)@X + B*dt@u, 1 being identity matrix
+
+kX = np.array([kalman.kx, kalman.kdx, kalman.kth, kalman.kdth]) # kalman state
+
+linX = np.copy(X)
 
 
-th = np.deg2rad(25) #+ np.random.randn() # 0 = vertical pendulum
-dth = 0
-
-x = 0
-dx = 0
-
-x0 = np.array([x, dx, th, dth])
-
-kx=x+np.random.randn()
-kth=th+np.random.randn()*.5
-# # for pso
-
-# th = np.ones(100) * np.deg2rad(20) #+ np.random.randn() # 0 = vertical pendulum
-# dth = np.zeros(100)
-
-# x = np.zeros(100)
-# dx = np.zeros(100)
-# # init particle, persnnal best and global best.
-
-# part = np.random.uniform(-100,100, (100,6)) # 100 particles with 6 coefficients, 3 for the PID on the angle, 3 for the PID on position
-
-# pbest = np.inf * np.ones(100)
-
-# gbest = np.inf # global best as + infinity
-
-# pbestcoef = part
-
-# k=0
-
-# v = np.random.uniform(100)*2
-    
-""" """
-l = 4
-mp = 1
-mc = 5
-F = np.zeros(1)
-g = 9.81
-dt = 0.1
-niter = 100
-
-th_set = 0
-x_set = 5
-
-error_th = th_set - th
-error_cumul = (th_set - th)
-
-error_x = x_set - x
-error_x_cumul = (x_set - x)
-
-P = np.eye(4)*10
-
+"plot initialization"
 fig = plt.figure()
 ax = fig.add_subplot()
 ax.set_xlabel('X axis')
 ax.set_ylabel('Y axis')
 # ax.axis("equal")
 ax.set_xlim(-10,10)
-ax.set_ylim([-l*1.5,l*1.5])
+ax.set_ylim([-pend.l*1.5,pend.l*1.5])
+ax.set_facecolor('k')
 
-tempx=[]
-tempth=[]
+xp = pend.x - pend.l * np.sin(pend.th)
+yp = pend.l * np.cos(pend.th)
 
-
-xp = x - l * np.sin(th)
-yp = l * np.cos(th)
-
-
-rect = ax.add_patch(mplp.Rectangle((x-1,-.5), 2, 1, color="red")) # bottom left
+rect = ax.add_patch(mplp.Rectangle((pend.x-1,-.5), 2, 1, color="red")) # bottom left
 circle = ax.add_patch(mplp.Circle((xp, yp), 0.4)) # center
-line, = ax.plot([x,xp], [0,yp], color="black")
-
-K = LQR()
-# gbestcoef = PSO() # particle swarm optimization to tune the PIDs
-
-# for MPC
-
-A = np.array([[0, 1, 0, 0],
-              [0, 0, g*mp/mc, 0],
-              [0, 0, 0, 1],       
-              [0, 0, g* (mp+mc)/(l*mc), 0]
-                ])
-
-B = np.array([[0],
-              [1/mc],
-              [0],
-              [1/(l*mc)]])
+line, = ax.plot([pend.x,xp], [0,yp], color="w")
 
 C = np.array([[1,0,0,0],
               [0,0,1,0]])
 D = np.zeros([2,1]) 
+  
 
+#%%
 
-ss = sp.signal.StateSpace(A,B,C,D)
+for t in range(500):    
+    
+    X = pend.rk4(t, X, h)
+    pend.x, pend.dx, pend.th, pend.dth = X.ravel() # .ravel() flattened the array to ease the unpacking
+    
+    pend.th = ( pend.th + np.pi) % (2 * np.pi ) - np.pi # to wrap the angle between [-pi, pi] instead of [0, 2pi]
 
-x0=np.array([x,dx,th,dth]) #(x,dx,th,dth)
+    "State estimator ie Kalman filter"
+    
+    measurement = X + np.random.normal(0,[[1],[1],[0.5],[0.5]],(4,1))*.4
+    kalman.kx, kalman.kdx, kalman.kth, kalman.kdth = kalman.kalman_filter(kX, measurement, pend.F).ravel()
+    kalman.kth = ( kalman.kth + np.pi) % (2 * np.pi ) - np.pi
+    kX = np.array([kalman.kx, kalman.kdx, kalman.kth, kalman.kdth]) # kalman state
 
+    "PID control" 
+    
+    # ctrl.update_err_pid(X.ravel()[[0,2]], X.ravel()[[1,3]], h) # X[[a,b]] to get the value, if X[a,b] => classic indexing
+    # pend.F = np.clip( ctrl.PID().sum(), -40, 40) # .item() if we use just one prcess variable to control, .sum if we use the two variable
 
-Nc = 8 # control horizon
-Np = 60 #prediction horizon
+    "LQR control"
+    
+    # ctrl.update_err_lqr(kX.ravel()) 
+    # pend.F = np.clip( (ctrl.K @ ctrl.err).item(), -40, 40 ) # lqr control = -K@(x-xset) or K@ (x_set-x), err is define as x_set-x
 
-u = np.ones(Nc) #initial guess for control
+    # measurement[1], measurement[3] = 0,0
+  
+    "MPC control"    
+    """
+    on real state works well for dt=.1 Nc = 8 Np = 60
+    with estimator dt should be reduce to .05
+    """
+    if t%2==0: # to simulate lag due to computation
+        result = ctrl.MPC_command(u, t_mpc, kX, (-50,50))    
+        pend.F = result.x[0]
+        u = result.x # to use the current solution as the starting point of the next mpc iteration
+            
+    
+    xp = pend.x - pend.l * np.sin(pend.th)
+    yp = pend.l * np.cos(pend.th)
+    
+    ax.set_title('time = {t:.2f} s'.format(t=t*h)) 
+    rect.set_xy((pend.x-1, -.5))
+    circle.set_center((xp,yp))
+    line.set_data([pend.x,xp], [0,yp])
+    plt.pause(.00001)
 
-t = np.arange(0,Np*dt, dt) 
-# niter=500
-
-
-# 
-ani = animation.FuncAnimation(fig, animate, niter, repeat=False)
-
-writer = animation.writers['ffmpeg'](fps=10)
-ani.save('inverted_pendulum.mp4',writer=writer)
