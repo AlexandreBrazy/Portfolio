@@ -1,6 +1,10 @@
 # Portfolio
 
-Simple implementation of various scientific code
+Simple implementation of various scientific code. More as a way to pratice and understand the underlying algorithm rather than efficient coding or use of library.
+
+- Nbody simulation
+
+![LBM](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/nbody.gif)
 
 - LBM SRT: Lattice Boltzman Method for Single relaxtion Time
 - LBM MRT: Lattice Boltzman Method for Multiple relaxtion Time
