@@ -2,7 +2,7 @@
 
 Simple implementation of various scientific code. More as a way to pratice and understand the underlying algorithm rather than efficient coding or use of library.
 
-- Nbody simulation
+- Nbody simulation, 25k particles
 
 ![Nbody](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/barneshut.gif)
 
