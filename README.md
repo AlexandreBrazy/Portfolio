@@ -1,6 +1,6 @@
 # Portfolio
 
-Simple implementation of various scientific code. More as a way to pratice and understand the underlying algorithm rather than efficient coding or use of library.
+Simple implementation of various scientific code. 
 
 - Nbody simulation, 25k particles
 
