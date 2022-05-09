@@ -4,7 +4,7 @@ Simple implementation of various scientific code. More as a way to pratice and u
 
 - Nbody simulation
 
-![LBM](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/nbody.gif)
+![Nbody](https://github.com/AlexandreBrazy/Portfolio/blob/main/Image/barneshut.gif)
 
 - LBM SRT: Lattice Boltzman Method for Single relaxtion Time
 - LBM MRT: Lattice Boltzman Method for Multiple relaxtion Time
