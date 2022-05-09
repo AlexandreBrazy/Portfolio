@@ -1,0 +1,4 @@
+name = "Node"
+uuid = "c8dfd640-12e1-49ca-a3a8-1a7d9d66ef97"
+authors = ["AlexandreBrazy <alexandre.brazy@laposte.net>"]
+version = "0.1.0"

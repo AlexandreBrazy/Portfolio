@@ -1,0 +1,9 @@
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.7.2"
+manifest_format = "2.0"
+
+[[deps.Node]]
+path = "../Node"
+uuid = "c8dfd640-12e1-49ca-a3a8-1a7d9d66ef97"
+version = "0.1.0"

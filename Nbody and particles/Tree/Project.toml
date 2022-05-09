@@ -1,0 +1,7 @@
+name = "Tree"
+uuid = "f353a18c-825c-4ffb-87b2-f336d057d639"
+authors = ["AlexandreBrazy <alexandre.brazy@laposte.net>"]
+version = "0.1.0"
+
+[deps]
+Node = "c8dfd640-12e1-49ca-a3a8-1a7d9d66ef97"
